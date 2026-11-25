@@ -1,6 +1,13 @@
 import json
 from datetime import datetime
 from src.ingestao.schema import DemandaPadronizada
+from src.normalizadores.limpeza import (
+    estimar_atendimento,
+    estimar_distancia_km,
+    padronizar_cidade,
+    padronizar_produto,
+    parse_numero_br,
+)
 
 
 def normalizar_json(conteudo: str) -> list[DemandaPadronizada]:
@@ -9,25 +16,30 @@ def normalizar_json(conteudo: str) -> list[DemandaPadronizada]:
     registros = []
 
     for idx, item in enumerate(lista_itens, start=1):
-        valor_frete = float(item.get("valor_frete", item.get("frete", 3000.0)))
-        atendida_raw = item.get("atendida", item.get("status"))
-        if atendida_raw is not None:
-            atendida = "Sim" if str(atendida_raw).lower() in ("sim", "1", "true", "atendida") else "Nao"
-        else:
-            atendida = "Sim" if valor_frete >= 2200.0 else "Nao"
+        origem = padronizar_cidade(item.get("ponto_origem", item.get("origem", "")))
+        destino = padronizar_cidade(item.get("ponto_destino", item.get("destino", "")))
+        produto = padronizar_produto(item.get("produto", ""))
+        vol_ton = parse_numero_br(item.get("volume_ton", 0.0)) or 0.0
+        distancia_km = estimar_distancia_km(origem, destino)
+
+        valor_frete = parse_numero_br(item.get("valor_frete", item.get("frete")))
+        if valor_frete is None:
+            valor_frete = round(distancia_km * 0.30, 2)
+
+        atendida = estimar_atendimento(valor_frete, distancia_km, item.get("status"))
 
         registros.append(
             DemandaPadronizada(
-                id_registro=str(item.get("id", f"API-{idx:04d}")),
+                id_registro=f"API-{item.get('id_agendamento', idx)}",
                 canal_origem="api_webhook",
-                data_recebimento=str(item.get("data", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))),
-                cliente=str(item.get("cliente", f"Cliente_API_{idx}")),
-                produto=str(item.get("produto", "Insumos")),
-                origem=str(item.get("origem", "Maringa")),
-                destino=str(item.get("destino", "Londrina")),
-                peso_kg=float(item.get("peso_kg", item.get("peso", 8000.0))),
-                distancia_km=float(item.get("distancia_km", item.get("distancia", 115.0))),
-                prazo=str(item.get("prazo", "24h")),
+                data_recebimento=str(item.get("data_hora", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))),
+                cliente=str(item.get("codigo_rodo", f"Cliente_API_{idx}")),
+                produto=produto,
+                origem=origem,
+                destino=destino,
+                peso_kg=round(vol_ton * 1000.0, 2),
+                distancia_km=distancia_km,
+                prazo=str(item.get("janela_atendimento", "Comercial")),
                 valor_frete=valor_frete,
                 atendida=atendida,
                 texto_original=json.dumps(item, ensure_ascii=False),
