@@ -15,6 +15,7 @@ def normalizar_whatsapp(conteudo: str) -> list[DemandaPadronizada]:
     avisos_ruido = (
         "sinalizar o mais breve possivel",
         "entrar em contrato para realizar o agendamento",
+        "qual o valor do frete",
     )
     registros = []
 
@@ -27,6 +28,8 @@ def normalizar_whatsapp(conteudo: str) -> list[DemandaPadronizada]:
         corpo = "\n".join(linhas[1:]).strip()
         if not corpo or any(a in corpo.lower() for a in avisos_ruido):
             continue
+        if re.search(r"^[A-Z]{3}\d{4}\s+confirmado\s+pra", corpo, re.IGNORECASE):
+            continue
 
         m_cab = re.search(r"Mensagem\s+(\d+)\s*\|\s*([^|]+)\|\s*(.+?)\s*---", cabecalho)
         num_msg = int(m_cab.group(1)) if m_cab else len(registros) + 1
@@ -38,9 +41,9 @@ def normalizar_whatsapp(conteudo: str) -> list[DemandaPadronizada]:
             corpo,
             re.IGNORECASE,
         )
-        produto = padronizar_produto(m_prod.group(1)) if m_prod else "Nao Informado"
+        produto = padronizar_produto(m_prod.group(1)) if m_prod else ""
 
-        origem, destino = "Nao Informada", "Nao Informada"
+        origem, destino = "", ""
         corpo_limpo = re.sub(r"[^\w\s.,:/\-()?]", " ", corpo)
         corpo_limpo = re.sub(r"\s+", " ", corpo_limpo).strip()
 
@@ -49,7 +52,7 @@ def normalizar_whatsapp(conteudo: str) -> list[DemandaPadronizada]:
             r"([A-Za-zÀ-ÿ.\s/]+?)\s*\([^)]*\)\s*[xX]\s*([A-Za-zÀ-ÿ.\s/]+?)(?:\s*-|\s*,|$)",
             r"(?:abriu vaga agora em|pra|confirmado pra)\s+([A-Za-zÀ-ÿ.\s/]+?)\s+[xX]\s+([A-Za-zÀ-ÿ.\s/]+?)(?:\?|,|\s+-|$)",
             r"(?:faz\s+\d+\s*-\s*|SOJA(?:\s+EM\s+GRAOS)?\s*-\s*|MILHO(?:\s+EM\s+GRAOS)?\s*-\s*)([A-Za-zÀ-ÿ.\s/]+?)\s+pra\s+([A-Za-zÀ-ÿ.\s/]+?)(?:\s*-|\s*,|$)",
-            r"(?:precisamos de \d+ veiculos pra|valor do frete)\s+([A-Za-zÀ-ÿ.\s/]+?)\s*-\s*([A-Za-zÀ-ÿ.\s/]+?)(?:\?| ainda|,|$)",
+            r"(?:precisamos de \d+ veiculos pra)\s+([A-Za-zÀ-ÿ.\s/]+?)\s*-\s*([A-Za-zÀ-ÿ.\s/]+?)(?:\?| ainda|,|$)",
             r"^([A-Za-zÀ-ÿ.\s/]+?)\s+[xX]\s+([A-Za-zÀ-ÿ.\s/]+?)\s*-",
         )
         for padrao in padroes_rota:
@@ -59,14 +62,17 @@ def normalizar_whatsapp(conteudo: str) -> list[DemandaPadronizada]:
                 destino = padronizar_cidade(m_rota.group(2))
                 break
 
-        if origem == "Nao Informada":
+        if not origem:
             m_saldo_cid = re.search(r"saldo de\s+([A-Za-zÀ-ÿ.\s/]+?)\s+caiu", corpo_limpo, re.IGNORECASE)
             if m_saldo_cid:
                 origem = padronizar_cidade(m_saldo_cid.group(1))
                 destino = "Paranagua"
 
+        if not origem or not destino:
+            continue
+
         m_frete = re.search(r"R\$\s*(\d+(?:[.,]\d+)?)", corpo)
-        valor_frete = parse_numero_br(m_frete.group(1)) if m_frete else None
+        valor_frete = parse_numero_br(m_frete.group(1)) if m_frete else 0.0
 
         m_saldo = re.search(
             r"saldo\s*(?:de\s+[A-Za-zÀ-ÿ\s]+?\s+caiu\s+pra\s+)?(\d+(?:[.,]\d+)*)",
@@ -74,19 +80,24 @@ def normalizar_whatsapp(conteudo: str) -> list[DemandaPadronizada]:
             re.IGNORECASE,
         )
         saldo_ton = parse_numero_br(m_saldo.group(1)) if m_saldo else None
-        peso_kg = round(saldo_ton * 1000.0, 2) if saldo_ton else 0.0
+        if saldo_ton:
+            peso_kg = round(saldo_ton * 1000.0, 2)
+        else:
+            m_veic = re.search(r"(\d+)\s*(?:carretas?|veiculos?|ls)", corpo, re.IGNORECASE)
+            peso_kg = float(int(m_veic.group(1)) * 37000) if m_veic else 0.0
 
         m_prazo = re.search(r"(?:ate as|emb ate|previsao de chegada)\s*([0-9:h]+)", corpo, re.IGNORECASE)
-        prazo = m_prazo.group(1) if m_prazo else ("Hoje" if "hoje" in corpo.lower() or "hj" in corpo.lower() else "Nao Informado")
+        if m_prazo:
+            prazo = f"Ate {m_prazo.group(1)}"
+        elif "urgente" in corpo.lower():
+            prazo = "Urgente (Hoje)"
+        elif "hoje" in corpo.lower() or "hj" in corpo.lower():
+            prazo = "Hoje"
+        else:
+            prazo = "Imediato"
 
         distancia_km = estimar_distancia_km(origem, destino)
-
-        status_wpp = None
-        if "confirmado pra" in corpo.lower():
-            status_wpp = "confirmado"
-        elif "urgente" in corpo.lower() or "qual o valor" in corpo.lower():
-            status_wpp = "pendente"
-
+        status_wpp = "pendente" if "urgente" in corpo.lower() else None
         atendida = estimar_atendimento(valor_frete, distancia_km, status_wpp)
 
         registros.append(
@@ -101,7 +112,7 @@ def normalizar_whatsapp(conteudo: str) -> list[DemandaPadronizada]:
                 peso_kg=peso_kg,
                 distancia_km=distancia_km,
                 prazo=prazo,
-                valor_frete=valor_frete if valor_frete is not None else 0.0,
+                valor_frete=round(valor_frete, 2) if valor_frete else 0.0,
                 atendida=atendida,
                 texto_original=corpo,
             )
@@ -154,7 +165,7 @@ def normalizar_email(conteudo: str) -> list[DemandaPadronizada]:
                     peso_kg=round(saldo_ton * 1000.0, 2),
                     distancia_km=distancia_km,
                     prazo="Programado",
-                    valor_frete=valor_frete,
+                    valor_frete=round(valor_frete, 2),
                     atendida=atendida,
                     texto_original=linha,
                 )

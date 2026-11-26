@@ -21,11 +21,7 @@ def normalizar_json(conteudo: str) -> list[DemandaPadronizada]:
         produto = padronizar_produto(item.get("produto", ""))
         vol_ton = parse_numero_br(item.get("volume_ton", 0.0)) or 0.0
         distancia_km = estimar_distancia_km(origem, destino)
-
-        valor_frete = parse_numero_br(item.get("valor_frete", item.get("frete")))
-        if valor_frete is None:
-            valor_frete = round(distancia_km * 0.30, 2)
-
+        valor_frete = parse_numero_br(item.get("valor_frete", item.get("frete"))) or 0.0
         atendida = estimar_atendimento(valor_frete, distancia_km, item.get("status"))
 
         registros.append(
@@ -40,7 +36,7 @@ def normalizar_json(conteudo: str) -> list[DemandaPadronizada]:
                 peso_kg=round(vol_ton * 1000.0, 2),
                 distancia_km=distancia_km,
                 prazo=str(item.get("janela_atendimento", "Comercial")),
-                valor_frete=valor_frete,
+                valor_frete=round(valor_frete, 2),
                 atendida=atendida,
                 texto_original=json.dumps(item, ensure_ascii=False),
             )

@@ -1,4 +1,3 @@
-from datetime import datetime
 from pathlib import Path
 import pandas as pd
 from src.ingestao.schema import DemandaPadronizada
@@ -18,7 +17,7 @@ def normalizar_csv(caminho_arquivo: Path) -> list[DemandaPadronizada]:
     for idx, linha in df.iterrows():
         cliente = str(linha.get("Cliente", "")).strip()
         if not cliente or cliente.lower() == "nan":
-            cliente = f"Cliente_CSV_{idx + 1}"
+            cliente = "Carteira Rodomax"
 
         origem = padronizar_cidade(linha.get("Cidade Carga", ""))
         destino = padronizar_cidade(linha.get("Destino", ""))
@@ -34,7 +33,7 @@ def normalizar_csv(caminho_arquivo: Path) -> list[DemandaPadronizada]:
 
         data_ag = str(linha.get("Data_Agendamento", "")).strip()
         if not data_ag or data_ag.lower() == "nan":
-            data_ag = datetime.now().strftime("%Y-%m-%d")
+            data_ag = "2026-06-01"
 
         status_raw = str(linha.get("Status", "")).strip()
         atendida = estimar_atendimento(valor_frete, distancia_km, status_raw)
@@ -50,8 +49,8 @@ def normalizar_csv(caminho_arquivo: Path) -> list[DemandaPadronizada]:
                 destino=destino,
                 peso_kg=0.0,
                 distancia_km=distancia_km,
-                prazo=status_raw if status_raw and status_raw.lower() != "nan" else "Nao Informado",
-                valor_frete=valor_frete,
+                prazo=status_raw if status_raw and status_raw.lower() != "nan" else "Programado",
+                valor_frete=round(valor_frete, 2),
                 atendida=atendida,
                 texto_original=str(linha.to_dict()),
             )

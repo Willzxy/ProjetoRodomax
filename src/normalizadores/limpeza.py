@@ -74,19 +74,25 @@ def parse_numero_br(valor) -> float | None:
 
 def padronizar_produto(texto: str) -> str:
     if not texto or str(texto).strip().lower() == "nan":
-        return "Nao Informado"
+        return ""
     limpo = remover_acentos(texto).upper().strip()
     limpo = re.sub(r"\s+", " ", limpo)
     if "SOJA" in limpo:
+        if "GRAO" in limpo:
+            return "Soja em Graos"
+        if "COM" in limpo:
+            return "Soja Comercial"
         return "Soja"
     if any(p in limpo for p in ("MILHO", "MII HO", "MIIHO", "MILH")):
+        if "GRAO" in limpo or "GRAD" in limpo:
+            return "Milho em Graos"
         return "Milho"
     return str(texto).strip().title()
 
 
 def padronizar_cidade(texto: str) -> str:
     if not texto or str(texto).strip().lower() == "nan":
-        return "Nao Informada"
+        return ""
     s = remover_acentos(str(texto)).strip()
     s = re.sub(r"\([^)]*\)", "", s)
     s = re.sub(r"/[A-Z]{2}\b", "", s, flags=re.IGNORECASE)
@@ -155,4 +161,4 @@ def estimar_atendimento(
             return "Nao"
     if valor_frete is not None and valor_frete > 0 and distancia_km > 0:
         return "Sim" if (valor_frete / distancia_km) >= 0.25 else "Nao"
-    return "Nao"
+    return ""
